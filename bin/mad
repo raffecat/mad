@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+
+var fspath = require('path');
+var fs = require('fs');
+var http = require('http');
+var express = require('express');
+
+function coerceDirectory(arg) {
+  var dir = fspath.resolve(arg);
+  if (!(fs.existsSync(dir) && fs.statSync(dir).isDirectory())) throw new Error("directory not found: "+dir);
+  return dir;
+}
+
+function findCaseIgnore(array, entry) {
+  // find the entry with case-insensitive matching.
+  var seek = entry.toLowerCase();
+  for (var i=0; i<array.length; i++) {
+    if (array[i].toLowerCase() === seek) {
+      return array[i];
+    }
+  }
+  return null;
+}
+
+var caseSensitiveCache = {};
+function caseSensitivePath(basedir, filepath) {
+  // http://stackoverflow.com/questions/27367261/check-if-file-exists-case-sensitive
+  if (filepath === '/' || filepath === '.') return ''; // top-level.
+  var res = caseSensitiveCache[filepath];
+  if (res) return res;
+  //console.log("checking: "+filepath);
+  var dir = fspath.dirname(filepath);
+  var filenames = fs.readdirSync(basedir+dir);
+  var basename = fspath.basename(filepath);
+  if (filenames.indexOf(basename) === -1) {
+    basename = findCaseIgnore(filenames, basename) || "??-not-found-??";
+  }
+  var prefix = caseSensitivePath(basedir, dir);
+  var res = prefix + '/' + basename;
+  caseSensitiveCache[filepath] = res;
+  return res;
+}
+
+var argv = require('yargs')
+  .usage("Usage: mad [directory] [options]")
+  .option('p', {
+    alias: 'port', default: 8000, type: 'number', describe: 'TCP port to listen on'
+  })
+  .option('s', {
+    alias: 'slow', default: 100, describe: 'Serve files slowly (can specify ms delay)'
+  })
+  .option('m', {
+    alias: 'mask', default: true, type: 'boolean', describe: 'Mask the .html extension on .html files'
+  })
+  .option('r', {
+    alias: 'redir', default: true, type: 'boolean', describe: 'Redirect .html paths to remove .html'
+  })
+  .option('b', {
+    alias: 'ban', default: false, type: 'boolean', describe: 'Ban .html paths to test masked URLs'
+  })
+  .alias('h', 'help')
+  .help()
+  .argv;
+
+var port = argv.p;
+var dir = coerceDirectory(argv._[0] || ".");
+var slow = (parseInt(argv.s) == argv.s) ? parseInt(argv.s) : (argv.s ? 100 : 0);
+var mask = argv.m;
+var block = argv.b;
+var redir = argv.r && !block;
+
+var app = express();
+app.set("env", "development"); // ignore NODE_ENV.
+app.set("strict routing", true); // don't mess with trailing slashes.
+app.set("x-powered-by", false);
+
+app.use(function (req, res, next) {
+  var path = decodeURIComponent(req.path);  // expand all the escapes.
+  var file = fspath.normalize(path);        // collapse all ".." sequences.
+  if (mask) {
+    if ((redir || block) && /\.html$/i.test(path)) {
+      if (block) {
+        return res.status(403).end(); // Forbidden.
+      }
+      // if a path is requested with a ".html" extension,
+      // redirect to the same path without the ".html" extension.
+      path = path.substr(0, path.length - 5); // ".html"
+      // redirect "index.html" to the same path without it.
+      if (/\/index$/.test(path)) {
+        path = path.substr(0, path.length - 5); // "index"
+      }
+      res.set("Location", req.protocol+"://"+req.hostname+":"+port+path);
+      return res.status(302).end();
+    } else {
+      // if the requested file does not exist, but there is a HTML file
+      // with the same name, serve the HTML file at this path.
+      if (!fs.existsSync(dir+file) && fs.existsSync(dir+file+'.html')) {
+        file += '.html';
+      }
+    }
+  }
+  if (file != "/" && fs.existsSync(dir+file)) {
+    var actualPath = caseSensitivePath(dir, file);
+    if (actualPath !== file) {
+      console.log("File name lower/upper-case mismatch!\n    Requested as: "+file+"\n     Actual file: "+actualPath);
+    }
+  }
+  if (slow) {
+    // delay responses to requests by `slow` milliseconds.
+    setTimeout(function(){
+      res.sendFile(dir+file);
+    }, slow);
+  } else {
+    res.sendFile(dir+file);
+  }
+});
+
+var server = http.createServer(app);
+server.on("error", function (err) {
+  if (err.code === 'EADDRINUSE') {
+    console.error("MAD: something is already listening on port "+port);
+  } else {
+    console.error(err.stack || err.toString());
+  }
+});
+server.listen(port, function (err) {
+  if (err) console.error(err.stack || err.toString());
+  var msg = "MAD: serving "+dir+" on http://localhost:"+port+"/";
+  if (slow) msg += "\nSlow responses: "+slow+" ms (-s option)";
+  if (mask) {
+    msg += "\nMasking .html extensions (-m option)";
+    if (redir) msg += " with redirects on (-r option)";
+    if (block) msg += " with access to .html banned (-b option)";
+  }
+  console.log(msg);
+});
