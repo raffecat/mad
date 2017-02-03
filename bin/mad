@@ -42,7 +42,7 @@ function caseSensitivePath(basedir, filepath) {
 }
 
 var argv = require('yargs')
-  .usage("Usage: mad [directory] [options]")
+  .usage("Usage: mad [directory] [options]  (use -a0 or --no-a to turn off -a etc)")
   .option('p', {
     alias: 'port', default: 8000, type: 'number', describe: 'TCP port to listen on'
   })
@@ -56,7 +56,7 @@ var argv = require('yargs')
     alias: 'redir', default: true, type: 'boolean', describe: 'Redirect .html paths to remove .html'
   })
   .option('b', {
-    alias: 'ban', default: false, type: 'boolean', describe: 'Ban .html paths to test masked URLs'
+    alias: 'block', default: false, type: 'boolean', describe: 'Block .html paths to test masked URLs'
   })
   .alias('h', 'help')
   .help()
@@ -75,8 +75,8 @@ app.set("strict routing", true); // don't mess with trailing slashes.
 app.set("x-powered-by", false);
 
 app.use(function (req, res, next) {
-  var path = decodeURIComponent(req.path);  // expand all the escapes.
-  var file = fspath.normalize(path);        // collapse all ".." sequences.
+  var path = decodeURIComponent(req.path); // expand all the escapes.
+  var file = fspath.normalize(path); // collapse all ".." sequences.
   if (mask) {
     if ((redir || block) && /\.html$/i.test(path)) {
       if (block) {
@@ -100,6 +100,8 @@ app.use(function (req, res, next) {
     }
   }
   if (file != "/" && fs.existsSync(dir+file)) {
+    // warn if the requested url does not match the actual filename
+    // on a case-insensitive file system (windows, mac os)
     var actualPath = caseSensitivePath(dir, file);
     if (actualPath !== file) {
       console.log("File name lower/upper-case mismatch!\n    Requested as: "+file+"\n     Actual file: "+actualPath);
@@ -126,11 +128,11 @@ server.on("error", function (err) {
 server.listen(port, function (err) {
   if (err) console.error(err.stack || err.toString());
   var msg = "MAD: serving "+dir+" on http://localhost:"+port+"/";
-  if (slow) msg += "\nSlow responses: "+slow+" ms (-s option)";
+  if (slow) msg += "\nSlow responses: "+slow+" ms (-s)";
   if (mask) {
-    msg += "\nMasking .html extensions (-m option)";
-    if (redir) msg += " with redirects on (-r option)";
-    if (block) msg += " with access to .html banned (-b option)";
+    msg += "\nMasking .html (-m)";
+    if (redir) msg += " with redirects on (-r)";
+    if (block) msg += " with access to .html blocked (-b)";
   }
   console.log(msg);
 });
