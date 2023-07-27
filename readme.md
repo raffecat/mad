@@ -33,11 +33,15 @@ MAD: serving /home/bob/folio/static on http://localhost:8000/ [mask .html]
 Usage: mad [directory] [options]  (use -s0 or --no-s to turn off -s etc)
 
 Options:
-  -p, --port   TCP port to listen on                    [number] [default: 8000]
-  -s, --slow   Serve files slowly (can specify ms delay)          [default: 100]
-  -m, --mask   Mask the .html extension on .html files [boolean] [default: true]
-  -r, --redir  Redirect .html paths to remove .html    [boolean] [default: true]
-  -b, --block  Block .html paths to test masked URLs  [boolean] [default: false]
-  -P, --proxy  Proxy /api/ URLs (trims /api/ prefix)      [string] [default: ""]
-  -h, --help   Show help                                               [boolean]
+  -a, --access  Access log (log every request)         [boolean] [default: true]
+  -B, --bind    IP address to listen on          [string] [default: "localhost"]
+  -p, --port    TCP port to listen on                   [number] [default: 8000]
+  -s, --slow    Serve files slowly (can specify ms delay)         [default: 100]
+  -m, --mask    Mask the .html extension on .html files[boolean] [default: true]
+  -r, --redir   Redirect .html paths to remove .html   [boolean] [default: true]
+  -b, --block   Block .html paths to test masked URLs [boolean] [default: false]
+  -P, --proxy   Proxy /api/ URLs (trims /api/ prefix)     [string] [default: ""]
+  -w, --wait    Wait for an API request (specify /path/to/api)
+                                                           [array] [default: ""]
+  -h, --help    Show help                                              [boolean]
 ```

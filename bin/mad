@@ -86,9 +86,6 @@ var argv = require('yargs')
   .option('w', {
     alias: 'wait', default: '', type: 'array', describe: 'Wait for an API request (specify /path/to/api)'
   })
-  .option('W', {
-    alias: 'waitall', default: '', type: 'array', describe: 'Wait for an API request (specify base /path/)'
-  })
   .alias('h', 'help')
   .help()
   .argv;
@@ -103,7 +100,6 @@ var redir = argv.r && !block;
 var proxyTo = argv.P;
 var accessLog = argv.a;
 var waitPaths = argv.w;
-var waitAllPaths = argv.W;
 
 var nextId = 1;
 var pendingReqs = new Map();
