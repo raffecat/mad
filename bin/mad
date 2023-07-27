@@ -184,7 +184,7 @@ app.use(function (req, res, next) {
     console.log(`[${req.method}] ${req.originalUrl} -> ${dir+file}`);
   }
   for (var k of waitPaths) {
-    if (path === k) {
+    if (path.startsWith(k)) {
       return startInteractive(req, res, path);
     }
   }
