@@ -5,6 +5,12 @@ var fs = require('fs');
 var http = require('http');
 var express = require('express');
 
+var readline = require('readline');
+var rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
 var HttpProxy = require('http-proxy');
 var proxy = HttpProxy.createProxyServer({});
 proxy.on('error', function (err, req, res) {
@@ -56,6 +62,9 @@ var argv = require('yargs')
   .option('a', {
     alias: 'access', default: true, type: 'boolean', describe: 'Access log (log every request)'
   })
+  .option('B', {
+    alias: 'bind', default: 'localhost', type: 'string', describe: 'IP address to listen on'
+  })
   .option('p', {
     alias: 'port', default: 8000, type: 'number', describe: 'TCP port to listen on'
   })
@@ -74,10 +83,17 @@ var argv = require('yargs')
   .option('P', {
     alias: 'proxy', default: '', type: 'string', describe: 'Proxy /api/ URLs (trims /api/ prefix)'
   })
+  .option('w', {
+    alias: 'wait', default: '', type: 'array', describe: 'Wait for an API request (specify /path/to/api)'
+  })
+  .option('W', {
+    alias: 'waitall', default: '', type: 'array', describe: 'Wait for an API request (specify base /path/)'
+  })
   .alias('h', 'help')
   .help()
   .argv;
 
+var bind = argv.B;
 var port = argv.p;
 var dir = coerceDirectory(argv._[0] || ".");
 var slow = (parseInt(argv.s) == argv.s) ? parseInt(argv.s) : (argv.s ? 300 : 0);
@@ -86,6 +102,50 @@ var block = argv.b;
 var redir = argv.r && !block;
 var proxyTo = argv.P;
 var accessLog = argv.a;
+var waitPaths = argv.w;
+var waitAllPaths = argv.W;
+
+var nextId = 1;
+var pendingReqs = new Map();
+
+rl.on('line', (line) => {
+  var num = parseInt(line,10), n = num.toString().length;
+  if (!num) return;
+  line = line.substring(n+1); // skip num, assume space.
+  var status = parseInt(line,10); n = status.toString().length;
+  line = line.substring(n+1); // skip status, assume space.
+  var res = pendingReqs.get(num);
+  if (res) {
+    console.log(`=> sending response: ${num} ${status} ${line}`);
+    var buf = Buffer.from(line,'utf8');
+    res.append('Content-Type', 'application/json');
+    res.append('Content-Length', buf.length.toString());
+    res.status(status);
+    res.send(buf);
+    res.end();
+  } else {
+    console.log(`=> no such connection: ${num}`);
+  }
+});
+
+function startInteractive(req, res, path) {
+  var id = nextId++;
+  console.log(`<= WAIT: ${id} ${path}\nPlease enter: '${id} <status-code> [response-body]' to send a response (assumes JSON)`);
+  pendingReqs.set(id, res);
+  var h = req.headers;
+  for (var k of Object.keys(h)) {
+    console.log(`<= ${id} ${k}: ${h[k]}`);
+  }
+  req.on('data', function(data){
+    console.log(`<= ${id} :: ${data}`);
+  });
+  req.on('close', function(){
+    console.log(`<= ${id} end of request body.`);
+  });
+  req.on('error', function(){
+    console.log(`<= ${id} ERROR: `);
+  });
+}
 
 var app = express();
 app.set("env", "development"); // ignore NODE_ENV.
@@ -127,6 +187,11 @@ app.use(function (req, res, next) {
   if (accessLog) {
     console.log(`[${req.method}] ${req.originalUrl} -> ${dir+file}`);
   }
+  for (var k of waitPaths) {
+    if (path === k) {
+      return startInteractive(req, res, path);
+    }
+  }
   if (file != "/" && fs.existsSync(dir+file)) {
     // warn if the requested url does not match the actual filename
     // on a case-insensitive file system (windows, mac os)
@@ -153,15 +218,16 @@ server.on("error", function (err) {
     console.error(err.stack || err.toString());
   }
 });
-server.listen(port, function (err) {
+server.listen(port, bind, function (err) {
   if (err) console.error(err.stack || err.toString());
-  var msg = "MAD: serving "+dir+" on http://localhost:"+port+"/";
+  var msg = "MAD: serving "+dir+" on http://"+bind+":"+port+"/";
   if (slow) msg += "\nSlow responses: "+slow+" ms (-s)";
   if (mask) {
     msg += "\nMasking .html (-m)";
     if (redir) msg += " with redirects on (-r)";
     if (block) msg += " with access to .html blocked (-b)";
   }
-  if (proxyTo) msg += "\nProxy /api to: "+proxyTo
+  if (proxyTo) msg += "\nProxy /api to: "+proxyTo;
+  msg += "\nWaiting for commands. Watch for '<= WAIT' messages.";
   console.log(msg);
 });
