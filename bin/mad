@@ -4,12 +4,7 @@ var fspath = require('path');
 var fs = require('fs');
 var http = require('http');
 var express = require('express');
-
 var readline = require('readline');
-var rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
 
 var HttpProxy = require('http-proxy');
 var proxy = HttpProxy.createProxyServer({});
@@ -80,11 +75,14 @@ var argv = require('yargs')
   .option('b', {
     alias: 'block', default: false, type: 'boolean', describe: 'Block .html paths to test masked URLs'
   })
+  .option('A', {
+    alias: 'api', default: '/api/', type: 'string', describe: 'Set the prefix for -P Proxy'
+  })
   .option('P', {
-    alias: 'proxy', default: '', type: 'string', describe: 'Proxy /api/ URLs (trims /api/ prefix)'
+    alias: 'proxy', default: '', type: 'string', describe: 'Proxy API (-A) to a URL (trims the -A prefix)'
   })
   .option('w', {
-    alias: 'wait', default: '', type: 'array', describe: 'Wait for an API request (specify /path/to/api)'
+    alias: 'wait', default: '', type: 'array', describe: 'Wait for an API request (specify /path/to/api prefix)'
   })
   .alias('h', 'help')
   .help()
@@ -97,32 +95,41 @@ var slow = (parseInt(argv.s) == argv.s) ? parseInt(argv.s) : (argv.s ? 300 : 0);
 var mask = argv.m;
 var block = argv.b;
 var redir = argv.r && !block;
+var proxyFrom = argv.A;
 var proxyTo = argv.P;
 var accessLog = argv.a;
 var waitPaths = argv.w;
+if (waitPaths[0] === '') waitPaths.shift();
 
 var nextId = 1;
 var pendingReqs = new Map();
 
-rl.on('line', (line) => {
-  var num = parseInt(line,10), n = num.toString().length;
-  if (!num) return;
-  line = line.substring(n+1); // skip num, assume space.
-  var status = parseInt(line,10); n = status.toString().length;
-  line = line.substring(n+1); // skip status, assume space.
-  var res = pendingReqs.get(num);
-  if (res) {
-    console.log(`=> sending response: ${num} ${status} ${line}`);
-    var buf = Buffer.from(line,'utf8');
-    res.append('Content-Type', 'application/json');
-    res.append('Content-Length', buf.length.toString());
-    res.status(status);
-    res.send(buf);
-    res.end();
-  } else {
-    console.log(`=> no such connection: ${num}`);
-  }
-});
+var rl;
+if (waitPaths.length) {
+  rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  rl.on('line', (line) => {
+    var num = parseInt(line,10), n = num.toString().length;
+    if (!num) return;
+    line = line.substring(n+1); // skip num, assume space.
+    var status = parseInt(line,10); n = status.toString().length;
+    line = line.substring(n+1); // skip status, assume space.
+    var res = pendingReqs.get(num);
+    if (res) {
+      console.log(`=> sending response: ${num} ${status} ${line}`);
+      var buf = Buffer.from(line,'utf8');
+      res.append('Content-Type', 'application/json');
+      res.append('Content-Length', buf.length.toString());
+      res.status(status);
+      res.send(buf);
+      res.end();
+    } else {
+      console.log(`=> no such connection: ${num}`);
+    }
+  });
+}
 
 function startInteractive(req, res, path) {
   var id = nextId++;
@@ -149,7 +156,7 @@ app.set("strict routing", true); // don't mess with trailing slashes.
 app.set("x-powered-by", false);
 
 if (proxyTo) {
-  app.use('/api', function (req, res) {
+  app.use(proxyFrom, function (req, res) {
     console.log("[proxy]", req.originalUrl, '->', proxyTo+req.path);
     proxy.web(req, res, { target: proxyTo, changeOrigin: true, autoRewrite: true, cookieDomainRewrite: req.hostname });
   });
@@ -184,7 +191,7 @@ app.use(function (req, res, next) {
     console.log(`[${req.method}] ${req.originalUrl} -> ${dir+file}`);
   }
   for (var k of waitPaths) {
-    if (k && path.startsWith(k)) {
+    if (path.startsWith(k)) {
       return startInteractive(req, res, path);
     }
   }
@@ -223,7 +230,7 @@ server.listen(port, bind, function (err) {
     if (redir) msg += " with redirects on (-r)";
     if (block) msg += " with access to .html blocked (-b)";
   }
-  if (proxyTo) msg += "\nProxy /api to: "+proxyTo;
-  msg += "\nWaiting for commands. Watch for '<= WAIT' messages.";
+  if (proxyTo) msg += "\nProxy "+proxyFrom+" to: "+proxyTo;
+  if (waitPaths.length) msg += "\nWaiting for commands. Watch for '<= WAIT' messages (-w)";
   console.log(msg);
 });
